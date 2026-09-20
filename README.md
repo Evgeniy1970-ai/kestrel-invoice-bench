@@ -1,6 +1,6 @@
 # Kestrel Invoice Bench
 
-A supplier invoice checking system built on n8n, Claude and Postgres. What matters here is not that it finds discrepancies — it is that we know **how many it misses**.
+A supplier invoice checking system built on Python, Postgres, Claude and n8n. What matters here is not that it finds discrepancies — it is that we know **how many it misses**.
 
 ## Why a measurement bench
 
