@@ -1,0 +1,260 @@
+{
+  "name": "Invoice Handler_WF-01 Ingest",
+  "nodes": [
+    {
+      "parameters": {
+        "format": "resolved",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "16d8a8cf-e730-4caa-9166-3e407e057688",
+      "name": "Mail in",
+      "credentials": {
+        "imap": {
+          "id": "u6kU5hAQwRypASFD",
+          "name": "Kestrel Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select supplier_code, lower(billing_email) as billing_email\nfrom ref.suppliers\nwhere status = 'approved';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        -208
+      ],
+      "id": "ea46c938-1c2b-46d2-ac3c-7a7515bf852d",
+      "name": "Load suppliers",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "0Ffla4MZ06GWm8U3",
+          "name": "Kestrel Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\n// Supplier reference list. Comes from the parallel branch, resolved by node name.\nconst suppliers = $('Load suppliers').all();\n\nif (suppliers.length === 0) {\n  throw new Error(\n    'Supplier list is empty. Check the Load suppliers node: ' +\n    'it must sit above on the canvas so it runs first.'\n  );\n}\n\nconst byEmail = new Map();\nfor (const s of suppliers) {\n  if (!s.json.billing_email || !s.json.supplier_code) {\n    throw new Error('Supplier list contains a row without email or supplier code.');\n  }\n  byEmail.set(s.json.billing_email.toLowerCase(), s.json.supplier_code);\n}\n\nconst out = [];\nconst mails = $input.all();\n\nfor (let i = 0; i < mails.length; i++) {\n  const mail = mails[i].json;\n  const binary = mails[i].binary || {};\n  const sender = mail.from?.value?.[0]?.address?.toLowerCase() ?? null;\n  const receivedAt = mail.date ?? null;\n\n  // Sender is a property of the mail, not of the attachment. Resolved once,\n  // before the attachment loop, so that mails with no PDF still carry a\n  // definite true/false. A null here would mean \"unknown\" in SQL, and\n  // `where sender_approved = false` would silently skip such mails.\n  const supplier = sender ? (byEmail.get(sender) ?? null) : null;\n  const senderApproved = supplier !== null;\n\n  // First pass: count attachments and record what gets skipped.\n  // Metadata only — the binary buffer is expensive and not needed here.\n  const pdfProps = [];\n  const skipped = [];\n  for (const prop of Object.keys(binary)) {\n    const meta = binary[prop];\n    if (meta.mimeType === 'application/pdf') {\n      pdfProps.push(prop);\n    } else {\n      skipped.push(`${meta.fileName ?? 'unnamed'} (${meta.mimeType ?? 'unknown'})`);\n    }\n  }\n\n  const attachmentCount = Object.keys(binary).length;\n  const pdfCount = pdfProps.length;\n\n  // Mail-level fields ride on every item, both the ones carrying a PDF and\n  // the single placeholder for mails without one. Save document and Save mail\n  // both call doc.record_mail with these.\n  const mailFields = {\n    message_id: mail.messageId ?? null,\n    sender: sender,\n    subject: mail.subject ?? null,\n    received_at: receivedAt,\n    sender_approved: senderApproved,\n    attachment_count: attachmentCount,\n    pdf_count: pdfCount,\n    skipped_files: skipped.length ? skipped.join('; ') : null,\n  };\n\n  // Nothing usable in this mail. Emit one item so the mail leaves a trace.\n  // Before 30 August this loop simply produced nothing and the mail vanished.\n  if (pdfCount === 0) {\n    out.push({\n      json: {\n        ...mailFields,\n        has_pdf: false,\n        mail_status: attachmentCount === 0 ? 'no_attachment' : 'no_pdf',\n        supplier_code: supplier,\n      },\n      pairedItem: i,\n    });\n    continue;\n  }\n\n  // Second pass: hash each PDF and build its storage path.\n  for (const prop of pdfProps) {\n    const meta = binary[prop];\n    const buf = await this.helpers.getBinaryDataBuffer(i, prop);\n    const sha = crypto.createHash('sha256').update(buf).digest('hex');\n\n    // Storage layout: raw/{supplier}/{yyyy}/{mm}/{sha256}.pdf\n    // Unknown senders go to _unknown so the path never has an empty segment.\n    const folder = supplier ?? '_unknown';\n    const yyyy = receivedAt ? receivedAt.slice(0, 4) : 'unknown';\n    const mm = receivedAt ? receivedAt.slice(5, 7) : 'unknown';\n\n    out.push({\n      json: {\n        ...mailFields,\n        has_pdf: true,\n        mail_status: 'ingested',\n        file_name: meta.fileName,\n        file_sha256: sha,\n        file_size: buf.length,\n        supplier_code: supplier,\n        storage_path: `raw/${folder}/${yyyy}/${mm}/${sha}.pdf`,\n      },\n      binary: { data: meta },\n      pairedItem: i,\n    });\n  }\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "68b3fd1f-f742-4ca7-8cd8-73eb5c000d50",
+      "name": "Ingest items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/kestrel-raw/{{ $json.storage_path }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/pdf"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        0
+      ],
+      "id": "cc40f653-4b87-425e-8cff-4f50b8b3e6fc",
+      "name": "Upload to storage",
+      "credentials": {
+        "supabaseApi": {
+          "id": "qqfHzNyoSOk3Aa7H",
+          "name": "Kestrel Supabase Storage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into doc.documents\n  (file_sha256, storage_path, source_filename,\n   source_message_id, sender, received_at, ingest_status, mail_id)\nvalues ($1, $2, $3, $4, $5, $6, $7,\n        doc.record_mail($4, $5, $8, $6, $9, $10, $11, $12, $13))\non conflict (file_sha256) do nothing\nreturning id, file_sha256, ingest_status, mail_id;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [$('Ingest items').item.json.file_sha256, $('Ingest items').item.json.storage_path, $('Ingest items').item.json.file_name, $('Ingest items').item.json.message_id, $('Ingest items').item.json.sender, $('Ingest items').item.json.received_at, $('Ingest items').item.json.supplier_code ? 'received' : 'unapproved_sender', $('Ingest items').item.json.subject, $('Ingest items').item.json.sender_approved, $('Ingest items').item.json.attachment_count, $('Ingest items').item.json.pdf_count, $('Ingest items').item.json.mail_status, $('Ingest items').item.json.skipped_files] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        0
+      ],
+      "id": "48bdb53e-3dfc-4c46-b614-1b0279b6cd73",
+      "name": "Save document",
+      "credentials": {
+        "postgres": {
+          "id": "0Ffla4MZ06GWm8U3",
+          "name": "Kestrel Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "58084e9e-08e3-431f-81e2-ac1f7bd4dbb5",
+              "leftValue": "={{ $json.has_pdf }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        400,
+        128
+      ],
+      "id": "0d0ca37d-946c-4140-854c-8a1eb363e403",
+      "name": "Has PDF?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select doc.record_mail($1, $2, $3, $4, $5, $6, $7, $8, $9) as mail_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.message_id, $json.sender, $json.subject, $json.received_at, $json.sender_approved, $json.attachment_count, $json.pdf_count, $json.mail_status, $json.skipped_files] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        608,
+        224
+      ],
+      "id": "e06d786c-d7c2-42a6-9be9-c6dadcf182b9",
+      "name": "Save mail",
+      "credentials": {
+        "postgres": {
+          "id": "0Ffla4MZ06GWm8U3",
+          "name": "Kestrel Supabase"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Mail in": {
+      "main": [
+        [
+          {
+            "node": "Load suppliers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ingest items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load suppliers": {
+      "main": [
+        []
+      ]
+    },
+    "Ingest items": {
+      "main": [
+        [
+          {
+            "node": "Has PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to storage": {
+      "main": [
+        [
+          {
+            "node": "Save document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has PDF?": {
+      "main": [
+        [
+          {
+            "node": "Upload to storage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "0ZuT2VQW0IGGLqGbQb7tZ",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "c95e1af3-4ad1-4737-b9d7-9509e672be70",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b8dc6b20db443e18892a3a7897076c0d1944dd1743dde315e88e0ce0d3ed7ca6"
+  },
+  "id": "aoJ63i3vbTS-PG55qn56P",
+  "tags": []
+}

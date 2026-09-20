@@ -1,0 +1,131 @@
+{
+  "name": "Invoice Handler_WF-00 Errors",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6b909016-68dd-4980-a877-694393a651bd",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into rec.workflow_errors\n  (workflow_id, workflow_name, execution_id, execution_url,\n   failed_node, error_message, raw_json)\nvalues ($1, $2, $3, $4, $5, $6, $7::jsonb)\nreturning id, workflow_name, failed_node;",
+        "options": {
+          "queryReplacement": "={{ [$json.workflow?.id, $json.workflow?.name, $json.execution?.id, $json.execution?.url, $json.execution?.lastNodeExecuted, $json.execution?.error?.message, JSON.stringify($json)] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "e22a3216-ddfa-4113-8b84-fdf4ba4f6bc1",
+      "name": "Save error",
+      "credentials": {
+        "postgres": {
+          "id": "0Ffla4MZ06GWm8U3",
+          "name": "Kestrel Supabase"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Error Trigger": [
+      {
+        "json": {
+          "execution": {
+            "id": "2127",
+            "url": "https://thomasine-zincous-convocationally.ngrok-free.dev/workflow/aoJ63i3vbTS-PG55qn56P/executions/2127",
+            "error": {
+              "level": "warning",
+              "tags": {},
+              "description": "No function matches the given name and argument types. You might need to add explicit type casts.",
+              "timestamp": 1788023056727,
+              "context": {},
+              "functionality": "regular",
+              "name": "NodeOperationError",
+              "node": {
+                "parameters": {
+                  "resource": "database",
+                  "operation": "executeQuery",
+                  "query": "select doc.record_mai($1, $2, $3, $4, $5, $6, $7, $8, $9) as mail_id;",
+                  "options": {
+                    "queryReplacement": "={{ $json.message_id }},{{ $json.sender }},{{ $json.subject }},{{ $json.received_at }},{{ $json.sender_approved }},{{ $json.attachment_count }},{{ $json.pdf_count }},{{ $json.mail_status }},{{ $json.skipped_files }}"
+                  }
+                },
+                "type": "n8n-nodes-base.postgres",
+                "typeVersion": 2.6,
+                "position": [
+                  608,
+                  224
+                ],
+                "id": "e06d786c-d7c2-42a6-9be9-c6dadcf182b9",
+                "name": "Save mail",
+                "credentials": {
+                  "postgres": {
+                    "id": "0Ffla4MZ06GWm8U3",
+                    "name": "Kestrel Supabase"
+                  }
+                }
+              },
+              "messages": [],
+              "message": "function doc.record_mai(unknown, unknown, unknown, unknown, unknown, unknown, unknown, unknown, unknown) does not exist",
+              "stack": "NodeOperationError: function doc.record_mai(unknown, unknown, unknown, unknown, unknown, unknown, unknown, unknown, unknown) does not exist\n    at parsePostgresError (C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-nodes-base\\nodes\\Postgres\\v2\\helpers\\utils.ts:123:9)\n    at C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-nodes-base\\nodes\\Postgres\\v2\\helpers\\utils.ts:278:19\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at ExecuteContext.execute (C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-nodes-base\\nodes\\Postgres\\v2\\actions\\database\\executeQuery.operation.ts:149:9)\n    at ExecuteContext.router (C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-nodes-base\\nodes\\Postgres\\v2\\actions\\router.ts:41:17)\n    at ExecuteContext.execute (C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-nodes-base\\nodes\\Postgres\\v2\\PostgresV2.node.ts:26:10)\n    at WorkflowExecute.executeNode (C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-core\\src\\execution-engine\\workflow-execute.ts:1069:8)\n    at WorkflowExecute.runNode (C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-core\\src\\execution-engine\\workflow-execute.ts:1250:11)\n    at C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-core\\src\\execution-engine\\workflow-execute.ts:1685:27\n    at C:\\Users\\HP Pro G7\\AppData\\Roaming\\npm\\node_modules\\n8n\\node_modules\\n8n-core\\src\\execution-engine\\workflow-execute.ts:2328:11"
+            },
+            "lastNodeExecuted": "Save mail",
+            "mode": "trigger",
+            "executionContext": {
+              "version": 1,
+              "establishedAt": 1788023056305,
+              "source": "trigger",
+              "triggerNode": {
+                "name": "Mail in",
+                "type": "n8n-nodes-base.emailReadImap"
+              }
+            }
+          },
+          "workflow": {
+            "id": "aoJ63i3vbTS-PG55qn56P",
+            "name": "Invoice Handler_WF-01 Ingest"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Save error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9f60de6f-f1d0-408a-bb9e-26105effb01b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b8dc6b20db443e18892a3a7897076c0d1944dd1743dde315e88e0ce0d3ed7ca6"
+  },
+  "id": "0ZuT2VQW0IGGLqGbQb7tZ",
+  "tags": []
+}
