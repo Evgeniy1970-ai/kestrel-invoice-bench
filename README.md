@@ -1,6 +1,6 @@
 # Kestrel Invoice Bench
 
-A supplier invoice checking system built on Python, Postgres, Claude and n8n. What matters here is not that it finds discrepancies — it is that we know **how many it misses**.
+A supplier invoice checking system built on Python, Postgres, OpenAI and n8n. What matters here is not that it finds discrepancies — it is that we know **how many it misses**.
 
 ## Why a measurement bench
 
@@ -64,7 +64,7 @@ The invoice batch and the ground-truth ledger are not included.
 
 ## Stack
 
-Python · PostgreSQL (Supabase) · Claude API · n8n
+Python · PostgreSQL (Supabase) · OpenAPI · n8n
 
 ## More on this
 
